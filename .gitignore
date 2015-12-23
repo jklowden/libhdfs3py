@@ -11,3 +11,7 @@ test/data/functiontest.xml
 test/data/securetest.xml
 .pydevproject
 *.css
+cscope.files
+cscope.out
+*~
+*.o
