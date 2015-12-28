@@ -1,9 +1,11 @@
 #include <Python.h>
 #include <memoryobject.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 #include "../src/client/hdfs.h"
 
+static const char module_name[] = "hdfs3py";
 static const char bld_capsule_name[] = "hdfs3py.hdfsBuilder";
 static const char file_capsule_name[] = "hdfs3py.hdfsFile";
 static const char fileinfo_capsule_name[] = "hdfs3py.hdfsFileInfo";
@@ -411,24 +413,22 @@ static PyObject *
 hdfs_read(PyObject * args) {
   hdfsFS fs;
   hdfsFile file;
-  Py_buffer pybuffer;
-  void * buffer = NULL;
+  PyObject *buffer;
   tSize len;
-  if( !PyArg_ParseTuple(args, "O&O&y*l", extract_fs, &fs, extract_file, &file, 
-			&pybuffer, &len) ) {
+  if( !PyArg_ParseTuple(args, "O&O&l", extract_fs, &fs, 
+			               extract_file, &file, &len) ) {
     return NULL;
   }
 
-  /* FIXME: convert pybuffer to void * */
-  if( buffer == NULL ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
+  if( (buffer = PyBytes_FromStringAndSize((char *)NULL, len)) == NULL ) {
     return NULL;
   }
- if( (len = hdfsRead(fs, file, buffer, len)) == -1 ) {
+
+  if( (len = hdfsRead(fs, file, PyBytes_AS_STRING(buffer), len)) == -1 ) {
+    Py_DECREF(buffer);
     return hdfs_err();
   }
-  return PyLong_FromLong(len);
+  return buffer;
 }
 
 static const char write_doc[] = "Write data into an open file";
@@ -436,22 +436,14 @@ static PyObject *
 hdfs_write(PyObject * args) {
   hdfsFS fs;
   hdfsFile file;
-  Py_buffer pybuffer;
-  void * buffer = NULL;
+  PyObject *buffer;
   tSize len;
-  if( !PyArg_ParseTuple(args, "O&O&y*l", extract_fs, &fs, extract_fs, &file, 
-			&pybuffer, &len) ) {
+  if( !PyArg_ParseTuple(args, "O&O&Ol", extract_fs, &fs, extract_fs, &file, 
+			&buffer, &len) ) {
     return NULL;
   }
 
-  /* FIXME: convert pybuffer to void * */
-  if( buffer == NULL ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
-    return NULL;
-  }
-
- if( (len = hdfsWrite(fs, file, buffer, len)) == -1 ) {
+ if( (len = hdfsWrite(fs, file, PyBytes_AsString(buffer), len)) == -1 ) {
     return hdfs_err();
   }
   return PyLong_FromLong(len);
@@ -590,22 +582,22 @@ static const char getWorkingDirectory_doc[] =
 static PyObject *
 getWorkingDirectory(PyObject * args) {
   hdfsFS fs;
-  Py_buffer *pybuffer;
-  char *name, *buffer = NULL;
-  size_t len = 0;
-  if( !PyArg_ParseTuple(args, "O&y*", extract_fs, &fs, &pybuffer) ) {
+  PyObject *buffer;
+  char *name;
+  size_t len = PATH_MAX;
+  if( !PyArg_ParseTuple(args, "O&", extract_fs, &fs) ) {
     return NULL;
   }
-  /* FIXME: convert pybuffer to void * */
-  if( buffer == NULL ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
+
+  if( (buffer = PyBytes_FromStringAndSize((char *)NULL, len)) == NULL ) {
     return NULL;
   }
-  if( (buffer = hdfsGetWorkingDirectory(fs, name, len)) == NULL ) {
+
+  if( hdfsGetWorkingDirectory(fs, PyBytes_AS_STRING(buffer), len) == NULL ) {
+    Py_DECREF(buffer);
     return hdfs_err();
   }
-  return PyUnicode_FromString(name);
+  return buffer;
 }
 
 static const char setWorkingDirectory_doc[] = "Set the working directory";
@@ -656,43 +648,102 @@ setReplication(PyObject * args) {
   Py_RETURN_TRUE;
 }
 
-/*
-    typedef struct {
-        tObjectKind mKind;
-        char * mName;
-        tTime mLastMod;
-        tOffset mSize;
-        short mReplication;
-        tOffset mBlockSize;
-        char * mOwner;
-        char * mGroup;
-        short mPermissions;
-        tTime mLastAccess;
-    } hdfsFileInfo;
-*/
+static PyTypeObject * hdfsFileInfo_Type = NULL;
 
+static void 
+hdfsFileInfo_NewType() {
+  static PyStructSequence_Field fields[] = 
+    { 
+      { "mKind", "file or directory" }, 
+      { "mName", "the name of the file" }, 
+      { "mLastMod", "the last modification time for the file in seconds" }, 
+      { "mSize", "the size of the file in bytes" }, 
+      { "mReplication", "the count of replicas" }, 
+      { "mBlockSize", "the block size for the file" }, 
+      { "mOwner", "the owner of the file" }, 
+      { "mGroup", "the group associated with the file" }, 
+      { "mPermissions", "the permissions associated with the file" }, 
+      { "mLastAccess", "the last access time for the file in seconds" }, 
+      { NULL, NULL }
+    };
+  static PyStructSequence_Desc desc = 
+    { .name = "hdfsFileInfo", 
+      .doc = "Information about a file/directory", 
+      .fields = fields, 
+      .n_in_sequence = sizeof(fields)/sizeof(fields[0]) - 1
+    };
+
+  hdfsFileInfo_Type = PyStructSequence_NewType(&desc);
+}
+
+static PyObject *
+hdfsFileInfo_New(const hdfsFileInfo *info) {
+  enum {mKind, mName, mLastMod, mSize, mReplication, mBlockSize, 
+	mOwner, mGroup, mPermissions, mLastAccess};
+  if( hdfsFileInfo_Type == NULL ) {
+    hdfsFileInfo_NewType();
+  }
+  PyObject* obj = PyStructSequence_New(hdfsFileInfo_Type);
+  const char kind = info->mKind;
+  PyObject *e[1 + mLastAccess];
+  ssize_t i;
+
+  e[mKind] = PyUnicode_FromStringAndSize(&kind, 1);
+  e[mName] = PyUnicode_FromString(info->mName);
+  e[mLastMod] = PyLong_FromLong(info->mLastMod);
+  e[mSize] = PyLong_FromLong(info->mSize);
+  e[mReplication] = PyLong_FromLong(info->mReplication);
+  e[mBlockSize] = PyLong_FromLong(info->mBlockSize);
+  e[mOwner] = PyUnicode_FromString(info->mOwner);
+  e[mGroup] = PyUnicode_FromString(info->mGroup);
+  e[mPermissions] = PyLong_FromLong(info->mPermissions);
+  e[mLastAccess] = PyLong_FromLong(info->mLastAccess);
+
+  for( i=0; i < sizeof(e)/sizeof(e[0]); i++ ) {
+    if( e[i] == NULL ) {
+      PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
+      PyErr_SetString(type, "logic error");
+      return NULL;
+    }
+    PyStructSequence_SetItem(obj, i, e[i]);
+  } 
+  return obj;
+}
+				   
 static const char listDirectory_doc[] = 
   "Get list of files/directories for a given";
 static PyObject *
 listDirectory(PyObject * args) {
   hdfsFS fs;
   char *name;
-  hdfsFileInfo * pinfo;
+  hdfsFileInfo *pinfo;
   int nelem;
-  int erc;
+  int i, erc;
+  PyObject *output;
   if( !PyArg_ParseTuple(args, "O&s", extract_fs, &fs, &name) ) {
     return NULL;
   }
 
- if( (pinfo = hdfsListDirectory(fs, name, &nelem)) == NULL ) {
+  if( (pinfo = hdfsListDirectory(fs, name, &nelem)) == NULL ) {
     return hdfs_err();
   }
-  /* FIXME: return array of tuples or something */
-  if( true ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
+  
+  if( (output = PyTuple_New(nelem)) == NULL ) {
     return NULL;
   }
+ 
+  for( i=0; i < nelem; i++ ) {
+    PyObject *elem;
+    if( (elem = hdfsFileInfo_New(pinfo + i)) == NULL ){
+      PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
+      PyErr_SetString(type, "logic error");
+      return NULL;
+    }
+    if( 0 != PyTuple_SetItem(output, i, elem) ) {
+      return NULL;
+    }
+  }
+  return output;
 }
 
 static const char getPathInfo_doc[] = 
@@ -701,21 +752,27 @@ static PyObject *
 getPathInfo(PyObject * args) {
   hdfsFS fs;
   char *name;
-  hdfsFileInfo * pinfo;
+  hdfsFileInfo * info;
   int erc;
+  PyObject *output;
+
   if( !PyArg_ParseTuple(args, "O&s", extract_fs, &fs, &name) ) {
     return NULL;
   }
 
- if( (pinfo = hdfsGetPathInfo(fs, name)) == NULL ) {
+  if( (info = hdfsGetPathInfo(fs, name)) == NULL ) {
     return hdfs_err();
   }
-  /* FIXME: return hdfsFileInfo class */
-  if( true ) {
+
+  if( (output = hdfsFileInfo_New(info)) == NULL ){
     PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
+    PyErr_SetString(type, "logic error");
     return NULL;
   }
+  if( 0 != PyTuple_SetItem(output, 0, output) ) {
+    return NULL;
+  }
+  return output;
 }
 
 static int 
@@ -749,40 +806,93 @@ static PyObject *
 getHosts(PyObject * args) {
   hdfsFS fs;
   char *name;
-  tOffset start, len;  
+  tOffset i, nelem, start, len;  
   char ***hosts;
+  PyObject *output;
   if( !PyArg_ParseTuple(args, "O&sll", extract_fs, &fs, &name, &start, &len) ) {
     return NULL;
   }
 
- if( (hosts = hdfsGetHosts(fs, name, start, len)) == NULL ) {
+  if( (hosts = hdfsGetHosts(fs, name, start, len)) == NULL ) {
     return hdfs_err();
   }
-  /* FIXME: return array */
-  if( true ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
+
+  for( nelem=0; hosts + nelem != NULL; nelem++ )
+    ;
+
+  if( (output = PyTuple_New(nelem)) == NULL ) {
     return NULL;
   }
+ 
+  for( i=0; i < nelem; i++ ) {
+    int j, nhosts = 0;
+    PyObject *row;
+    while( hosts[i] + nhosts ) {
+      nhosts++;
+    }
+    if( (row = PyTuple_New(nhosts)) == NULL ) {
+      return NULL;
+    }
+    for( j=0; j < nhosts; j++ ) {
+      PyObject *elem;
+      if( (elem = PyUnicode_FromString(hosts[i][j])) == NULL ){
+	PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
+	PyErr_SetString(type, "logic error");
+	return NULL;
+      }
+      if( 0 != PyTuple_SetItem(row, j, elem) ) {
+	return NULL;
+      }
+    }      
+
+    if( 0 != PyTuple_SetItem(output, i, row) ) {
+      return NULL;
+    }
+  }
+  return output;
 }
 
 static const char freeHosts_doc[] = 
   "Free up the structure returned by hdfsGetHosts";
 static PyObject *
 freeHosts(PyObject * args) {
-  PyTupleObject *pyhosts;
+  PyObject *pyhosts;
+  int i, j, nhosts;
   char ***hosts = NULL;
   if( !PyArg_ParseTuple(args, "O!", &PyTuple_Type, &pyhosts) ) {
     return NULL;
   }
 
-  /* FIXME: construct array */
-  if( hosts == NULL ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
-    return NULL;
+  nhosts = PyTuple_Size(pyhosts);
+  if( (hosts = calloc( 1 + nhosts, sizeof(char**))) == NULL ) {
+    return PyErr_NoMemory();
   }
+  for( i=0; i < nhosts; i++ ) {
+    PyObject *row = PyTuple_GetItem(pyhosts, i);
+    int nelem = PyTuple_Size(row);
+    if( row == NULL ) return NULL;
+    if( (hosts[i] = calloc(1 + nelem, sizeof(char*))) == NULL ) {
+      return PyErr_NoMemory();
+    }
+    for( j=0; j < nelem; j++ ) {
+      PyObject *elem = PyTuple_GetItem(row, j);
+      if( (hosts[i][j] = strdup(PyBytes_AsString(elem))) == NULL ) {
+	return PyErr_NoMemory();
+      }
+    }
+  }
+      
   hdfsFreeHosts(hosts);
+
+  for( i=0; hosts != NULL && i < nhosts; i++ ) {
+    for( j=0; hosts[i] != NULL && hosts[i][j] != NULL; j++ ) {
+      free(hosts[i][j]);
+    }
+    free(hosts[i]);
+  }
+  free(hosts);
+
+  Py_RETURN_TRUE;
 }
 
 static const char getDefaultBlockSize_doc[] = 
@@ -960,12 +1070,46 @@ cancelDelegationToken(PyObject * args) {
   Py_RETURN_TRUE;
 }
 
-/* 
-    typedef struct Namenode {
-        char * rpc_addr;
-        char * http_addr;
-    } Namenode;
-*/
+static PyTypeObject * Namenode_Type = NULL;
+
+static void 
+Namenode_NewType() {
+  static PyStructSequence_Field fields[] = 
+    { { "rpc_addr", "namenode rpc address and port, such as 'host:9000'" },
+      { "http_addr", "namenode http address and port, such as 'host:50070'" }
+    };
+  static PyStructSequence_Desc desc = 
+    { .name = "Namenode", 
+      .doc = "RPC information for HTTP nodes", 
+      .fields = fields, 
+      .n_in_sequence = sizeof(fields)/sizeof(fields[0]) - 1
+    };
+  Namenode_Type = PyStructSequence_NewType(&desc);
+}
+
+static PyObject *
+Namenode_New(const Namenode *info) {
+  enum {rpc_addr, http_addr};
+  if( Namenode_Type == NULL ) {
+    Namenode_NewType();
+  }
+  PyObject* obj = PyStructSequence_New(Namenode_Type);
+  PyObject *e[1 + http_addr];
+  ssize_t i;
+
+  e[rpc_addr]  = PyUnicode_FromString(info->rpc_addr);
+  e[http_addr] = PyUnicode_FromString(info->http_addr);
+
+  for( i=0; i < sizeof(e)/sizeof(e[0]); i++ ) {
+    if( e[i] == NULL ) {
+      PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
+      PyErr_SetString(type, "logic error");
+      return NULL;
+    }
+    PyStructSequence_SetItem(obj, i, e[i]);
+  } 
+  return obj;
+}
 
 static const char getHANamenodes_doc[] = 
   "If hdfs is configured with HA namenode, "
@@ -974,7 +1118,7 @@ static const char getHANamenodes_doc[] =
 static PyObject *
 getHANamenodes(PyObject * args) {
   const char * nameservice, *config = NULL;
-  int len;
+  int i, len;
   Namenode *nodes;
   if( !PyArg_ParseTuple(args, "s|s", &nameservice, &config) ) {
     return NULL;
@@ -988,47 +1132,166 @@ getHANamenodes(PyObject * args) {
       return  hdfs_err();
     }
   }
-  /* FIXME: construct array */
-  if( true ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
+
+  if( Namenode_Type == NULL ) {
+    Namenode_NewType();
+  }
+
+  PyObject *output;
+  if( (output = PyTuple_New(len)) == NULL ) {
     return NULL;
   }
+
+  for( i=0; i < len; i++ ) {
+    PyObject *elem;
+    if( (elem = Namenode_New(nodes + i)) == NULL ) {
+      PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
+      PyErr_SetString(type, "could not create namenode");
+      return NULL;
+    }
+
+    if( 0 != PyTuple_SetItem(output, i, elem) ) {
+      return NULL;
+    }
+  }
+  return output;
 }
 
 static const char freeNamenodeInformation_doc[] = 
   "Free the array returned by hdfsGetConfiguredNamenodes";
 static PyObject *
 freeNamenodeInformation(PyObject * args) {
-  PyTupleObject *pynodes;
+  PyObject *pynodes;
   Namenode * nodes = NULL;
-  int len = 0;
+  int i, len = 0;
   if( !PyArg_ParseTuple(args, "O!", &PyTuple_Type, &pynodes) ) {
     return NULL;
   }
 
-  /* FIXME: construct array */
-  if( nodes == NULL ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
-    return NULL;
+  len = PyTuple_Size(pynodes);
+
+  if( (nodes = calloc(len, sizeof(Namenode))) == NULL ) {
+    return PyErr_NoMemory();
+  }
+  
+  for( i=0; i < len; i++ ) {
+    PyObject *elem;
+    if( (elem = PyTuple_GetItem(pynodes, i)) == NULL ) {
+      return NULL;
+    }    
+    nodes[i].rpc_addr =  PyBytes_AsString(PyTuple_GetItem(elem, 0));
+    nodes[i].http_addr = PyBytes_AsString(PyTuple_GetItem(elem, 1));
   }
 
   hdfsFreeNamenodeInformation(nodes, len);
+
+  free(nodes);
+  Py_RETURN_TRUE;
 }
 
+static PyTypeObject * BlockLocation_Type = NULL;
 
-/*
-    typedef struct BlockLocation {
-        int corrupt;
-        int numOfNodes;
-        char ** hosts;
-        char ** names;
-        char ** topologyPaths;
-        tOffset length;
-        tOffset offset;
-    } BlockLocation;
-*/
+static void 
+BlockLocation_NewType()  {
+  static PyStructSequence_Field fields[] = 
+    { { "corrupt", "If the block is corrupt" }, 
+      { "numOfNodes", "Number of Datanodes which keep the block" }, 
+      { "hosts", "Datanode hostnames" }, 
+      { "names", "Datanode IP:xferPort for accessing the block" }, 
+      { "topologyPaths", "Full path name in network topology" }, 
+      { "length", "block length, may be 0 for the last block" }, 
+      { "offset", "Offset of the block in the file" }, 
+    };
+  static PyStructSequence_Desc desc = 
+    { .name = "BlockLocation", 
+      .doc = "hostnames, offset and size of portions of a file", 
+      .fields = fields, 
+      .n_in_sequence = sizeof(fields)/sizeof(fields[0]) - 1
+    };
+  BlockLocation_Type = PyStructSequence_NewType(&desc);
+}
+
+static PyObject *
+BlockLocation_SetRow( char **input ) {
+  PyObject *output;
+  int i, nelem;
+  for( nelem=0; input + nelem != NULL; nelem++ )
+    ;
+  if( (output = PyTuple_New(nelem)) == NULL ) {
+    return NULL;
+  }
+  for( i=0; i < nelem; i++ ) {
+    PyObject *elem = PyUnicode_FromString(input[i]);
+    if( 0 != PyTuple_SetItem(output, i, elem) ) {
+      return NULL;
+    }
+  }
+  return output;
+}
+
+static PyObject *
+BlockLocation_New(const BlockLocation *info) {
+  enum {corrupt, numOfNodes, hosts, names, topologyPaths, length, offset};
+  if( BlockLocation_Type == NULL ) {
+    BlockLocation_NewType();
+  }
+  PyObject* obj = PyStructSequence_New(BlockLocation_Type);
+  PyObject *e[1 + offset];
+  ssize_t i;
+
+  e[corrupt]       = PyLong_FromLong(info->corrupt);
+  e[numOfNodes]    = PyLong_FromLong(info->numOfNodes);
+  e[length]        = PyLong_FromLong(info->length);
+  e[offset]        = PyLong_FromLong(info->offset);
+
+  e[hosts] = BlockLocation_SetRow(info->hosts);
+  e[names] = BlockLocation_SetRow(info->names);
+  e[topologyPaths] = BlockLocation_SetRow(info->topologyPaths);
+
+  for( i=0; i < sizeof(e)/sizeof(e[0]); i++ ) {
+    if( e[i] == NULL ) {
+      PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
+      PyErr_SetString(type, "logic error");
+      return NULL;
+    }
+    PyStructSequence_SetItem(obj, i, e[i]);
+  } 
+  return obj;
+}
+
+static char **
+BlockLocation_GetRow( PyObject *row ) {
+  char **output;
+  int i, nelem = PyTuple_Size(row);
+
+  
+  if( (output = calloc(nelem, sizeof(char*))) == NULL ) {
+    return NULL;
+  }
+  for( i=0; i < nelem; i++ ) {
+    if( (output[i] = PyUnicode_AsUTF8(PyTuple_GetItem(row, i))) == NULL ) {
+      return NULL;
+    }
+  }
+  return output;
+}
+
+static const BlockLocation * 
+BlockLocation_Set(PyObject *input,  BlockLocation *output) {
+  enum {corrupt, numOfNodes, hosts, names, topologyPaths, length, offset};
+  ssize_t i;
+  PyObject *item;
+
+  output->corrupt = PyLong_AsLong(PyTuple_GetItem(input, corrupt));
+  output->numOfNodes = PyLong_AsLong(PyTuple_GetItem(input, numOfNodes));
+  output->hosts = BlockLocation_GetRow(PyTuple_GetItem(input, hosts));
+  output->names = BlockLocation_GetRow(PyTuple_GetItem(input, names));
+  output->topologyPaths = BlockLocation_GetRow(PyTuple_GetItem(input, topologyPaths));
+  output->length = PyLong_AsLong(PyTuple_GetItem(input, length));
+  output->offset = PyLong_AsLong(PyTuple_GetItem(input, offset));
+  
+  return output;
+}
 
 static const char getFileBlockLocations_doc[] = 
   "Get an array containing hostnames, offset and size "
@@ -1038,7 +1301,7 @@ getFileBlockLocations(PyObject * args) {
   hdfsFS fs;
   const char *name;
   tOffset start;
-  tOffset len;
+  tOffset i, len;
   BlockLocation *pblocks;
   int nblocks;
   if( !PyArg_ParseTuple(args, "O&s", extract_fs, &fs, &name, &start, &len) ) {
@@ -1048,31 +1311,54 @@ getFileBlockLocations(PyObject * args) {
 					   start, len, &nblocks)) == NULL ) {
     return  hdfs_err();
   }
-  /* FIXME: construct array */
-  if( true ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
+  
+  PyObject *output;
+  if( (output = PyTuple_New(nblocks)) == NULL ) {
     return NULL;
   }
+
+  for( i=0; i < nblocks; i++ ) {
+    PyObject *elem;
+    if( (elem = BlockLocation_New(pblocks + i)) == NULL ) {
+      PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
+      PyErr_SetString(type, "could not create BlockLocation");
+      return NULL;
+    }
+
+    if( 0 != PyTuple_SetItem(output, i, elem) ) {
+      return NULL;
+    }
+  }
+  return output;
 }
 
 static const char freeFileBlockLocations_doc[] = 
   "Free the BlockLocation array returned by hdfsGetFileBlockLocations";
 static PyObject *
 freeFileBlockLocations(PyObject * args) {
-  BlockLocation *pblocks;
-  int nblocks;
-  PyTupleObject *pynodes;
+  BlockLocation *blocks;
+  int i, nblocks;
+  PyObject *pynodes;
   if( !PyArg_ParseTuple(args, "O!", &PyTuple_Type, &pynodes) ) {
     return NULL;
   }
-  /* FIXME: construct array */
-  if( true ) {
-    PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-    PyErr_SetString(type, "not implemented");
-    return NULL;
+  nblocks = PyTuple_Size(pynodes);
+
+  if( (blocks = calloc(nblocks, sizeof(BlockLocation))) == NULL ) {
+    return PyErr_NoMemory();
   }
-  hdfsFreeFileBlockLocations(pblocks, nblocks);
+  
+  for( i=0; i < nblocks; i++ ) {
+    PyObject *elem;
+    if( (elem = PyTuple_GetItem(pynodes, i)) == NULL ) {
+      return NULL;
+    }    
+    BlockLocation_Set(elem, blocks + i);
+  }
+
+  hdfsFreeFileBlockLocations(blocks, nblocks);
+
+  free(blocks);
   Py_RETURN_TRUE;
 }
 
@@ -1138,3 +1424,17 @@ static PyMethodDef methods[] = {
   { NULL, NULL, 0, NULL },
 };
 
+static struct PyModuleDef module = {
+  PyModuleDef_HEAD_INIT,
+  module_name,
+  NULL,         /* module documentation, may be NULL */
+  -1,           /* size of per-interpreter state of the module,
+                   or -1 if the module keeps state in global variables. */
+  methods
+};
+
+PyMODINIT_FUNC
+PyInit_add(void)
+{
+  return PyModule_Create(&module);
+}

@@ -13,5 +13,6 @@ test/data/securetest.xml
 *.css
 cscope.files
 cscope.out
-*~
-*.o
+python/*~
+python/*.o
+python/*.so
