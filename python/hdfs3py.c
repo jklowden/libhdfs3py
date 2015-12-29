@@ -1434,7 +1434,8 @@ static struct PyModuleDef module = {
 };
 
 PyMODINIT_FUNC
-PyInit_add(void)
+PyInit_hdfs3py(void)
 {
+  printf("%ld methods in %s\n", sizeof(methods)/sizeof(*methods), module_name);
   return PyModule_Create(&module);
 }
