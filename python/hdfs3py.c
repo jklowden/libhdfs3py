@@ -28,30 +28,30 @@ getLastError() {
 
 static int 
 extract_fs( PyObject * fs_capsule, void *pout ) {
-  hdfsFS *pfs = (hdfsFS*)pout;
-  if( (pout = PyCapsule_GetPointer(fs_capsule, fs_capsule_name)) == NULL ) {
+  hdfsFS *fs;
+  if( (fs = PyCapsule_GetPointer(fs_capsule, fs_capsule_name)) == NULL ) {
     hdfs_err();
     return 0;
   }
-  *pfs = *(hdfsFS*)pout;
+  *(hdfsFS**)pout = fs;
   return 1;
 }
 
 static int 
 extract_file( PyObject * file_capsule, void *pout ) {
-  hdfsFile *pfile = (hdfsFile*)pout;
-  if( (pout = PyCapsule_GetPointer(file_capsule, file_capsule_name)) == NULL ) {
+  hdfsFile *file;
+  if( (file = PyCapsule_GetPointer(file_capsule, file_capsule_name)) == NULL ) {
     hdfs_err();
     return 0;
   }
-  *pfile = *(hdfsFile*)pout;
+  *(hdfsFile**)pout = file;
   return 1;
 }
 
 static const char fileIsOpenForRead_doc[] = 
   "Determine if a file is open for read";
 static PyObject *
-fileIsOpenForRead(PyObject * args) {
+fileIsOpenForRead(PyObject *self, PyObject *args) {
   hdfsFile file;
   if( !PyArg_ParseTuple(args, "O&", extract_file, &file) ) {
     return NULL;
@@ -64,7 +64,7 @@ fileIsOpenForRead(PyObject * args) {
 static const char fileIsOpenForWrite_doc[] = 
   "Determine if a file is open for write";
 static PyObject *
-fileIsOpenForWrite(PyObject * args) {
+fileIsOpenForWrite(PyObject *self, PyObject *args) {
   hdfsFile file;
   if( !PyArg_ParseTuple(args, "O&", extract_file, &file) ) {
     return NULL;
@@ -78,7 +78,7 @@ static const char connect_doc[] =
   "Connect to an hdfs file system, as current or other user, "
   "with or without a new instance";
 static PyObject *
-connect(PyObject * args, PyObject *keywords) {
+connect(PyObject *self, PyObject *args, PyObject *keywords) {
   static char *okwords[] = { "user", "new_instance" };
   const char *nn, *user = NULL;
   tPort port;
@@ -120,7 +120,7 @@ connect(PyObject * args, PyObject *keywords) {
 static const char disconnect_doc[] = 
   "Disconnect from the hdfs file system";
 static PyObject *
-disconnect(PyObject * args) {
+disconnect(PyObject *self, PyObject *args) {
   hdfsFS fs;
   if( !PyArg_ParseTuple(args, "O&", extract_fs, &fs) ) {
     return NULL;
@@ -133,19 +133,19 @@ disconnect(PyObject * args) {
 
 static int 
 extract_bld( PyObject * bld_capsule, void *pout ) {
-  struct hdfsBuilder **pbld = (struct hdfsBuilder **)pout;
-  if( (pout = PyCapsule_GetPointer(bld_capsule, bld_capsule_name)) == NULL ) {
+  struct hdfsBuilder *bld;
+  if( (bld = PyCapsule_GetPointer(bld_capsule, bld_capsule_name)) == NULL ) {
     hdfs_err();
     return 0;
   }
-  *pbld = *(struct hdfsBuilder **)pout;
+  *(struct hdfsBuilder **)pout = bld;
   return 1;
 }
 
 static const char builderConnect_doc[] = 
   "Connect to HDFS using the parameters defined by the builder";
 static PyObject *
-builderConnect(PyObject * args) {
+builderConnect(PyObject *self, PyObject *args) {
   hdfsFS fs;
   PyObject * fs_capsule;
   struct hdfsBuilder * bld;
@@ -170,6 +170,7 @@ newBuilder(void) {
   if( (bld = hdfsNewBuilder()) == NULL ) {
     return hdfs_err();
   }
+  printf("bld constructed at %p\n", bld);
   if( (bld_capsule = PyCapsule_New(bld, bld_capsule_name, NULL)) == NULL ) {
     return NULL;
   }
@@ -185,12 +186,13 @@ newBuilder(void) {
 static const char builderSetNameNode_doc[] = 
   "Set the HDFS NameNode to connect to";
 PyObject *
-builderSetNameNode(PyObject * args) {
+builderSetNameNode(PyObject *self, PyObject *args) {
   struct hdfsBuilder * bld;
   const char * nn;
   if( !PyArg_ParseTuple(args, "O&s", extract_bld, &bld, &nn) ) {
     return NULL;
   }
+  printf("bld extracted as %p\n", bld);
   hdfsBuilderSetNameNode(bld, nn);
   Py_RETURN_TRUE;
 }
@@ -198,7 +200,7 @@ builderSetNameNode(PyObject * args) {
 static const char builderSetNameNodePort_doc[] = 
   "Set the port of the HDFS NameNode to connect to.";
 PyObject *
-builderSetNameNodePort(PyObject * args ) {
+builderSetNameNodePort(PyObject *self, PyObject *args ) {
   struct hdfsBuilder * bld;
   tPort port;
   if( !PyArg_ParseTuple(args, "O&h", extract_bld, &bld, &port) ) {
@@ -211,7 +213,7 @@ builderSetNameNodePort(PyObject * args ) {
 static const char builderSetUserName_doc[] = 
   "Set the username to use when connecting to the HDFS cluster.";
 static PyObject *
-builderSetUserName(PyObject * args) {
+builderSetUserName(PyObject *self, PyObject *args) {
   struct hdfsBuilder * bld;
   const char * name;
   if( !PyArg_ParseTuple(args, "O&s", extract_bld, &bld, &name) ) {
@@ -224,7 +226,7 @@ builderSetUserName(PyObject * args) {
 static const char builderSetKerbTicketCachePath_doc[] = 
   "Set the path to the Kerberos ticket cache to use when connecting to";
 static PyObject *
-builderSetKerbTicketCachePath(PyObject * args) {
+builderSetKerbTicketCachePath(PyObject *self, PyObject *args) {
   struct hdfsBuilder * bld;
   const char * name;
   if( !PyArg_ParseTuple(args, "O&s", extract_bld, &bld, &name) ) {
@@ -237,7 +239,7 @@ builderSetKerbTicketCachePath(PyObject * args) {
 static const char builderSetToken_doc[] = 
  "Set the token used to authenticate";
 static PyObject *
-builderSetToken(PyObject * args) {
+builderSetToken(PyObject *self, PyObject *args) {
   struct hdfsBuilder * bld;
   const char * token;
   if( !PyArg_ParseTuple(args, "O&s", extract_bld, &bld, &token) ) {
@@ -249,7 +251,7 @@ builderSetToken(PyObject * args) {
 
 static const char freeBuilder_doc[] = "Free an HDFS builder.";
 static PyObject *
-freeBuilder(PyObject * args) {
+freeBuilder(PyObject *self, PyObject *args) {
   struct hdfsBuilder * bld;
   if( !PyArg_ParseTuple(args, "O&", extract_bld, &bld) ) {
     return NULL;
@@ -261,7 +263,7 @@ freeBuilder(PyObject * args) {
 static const char builderConfSetStr_doc[] = 
   "Set a configuration string for an HdfsBuilder.";
 static PyObject *
-builderConfSetStr(PyObject * args) {
+builderConfSetStr(PyObject *self, PyObject *args) {
   struct hdfsBuilder * bld;
   const char * key;
   const char * val;
@@ -277,7 +279,7 @@ builderConfSetStr(PyObject * args) {
 
 static const char confGetStr_doc[] = "Get a configuration string.";
 static PyObject *
-confGetStr(PyObject * args) {
+confGetStr(PyObject *self, PyObject *args) {
   const char * key;
   char * val;
   int erc;
@@ -292,7 +294,7 @@ confGetStr(PyObject * args) {
 
 static const char confGetInt_doc[] = "Get a configuration integer";
 static PyObject *
-confGetInt(PyObject * args) {
+confGetInt(PyObject *self, PyObject *args) {
   const char * key;
   int32_t val;
   int erc;
@@ -308,7 +310,7 @@ confGetInt(PyObject * args) {
 static const char confStrFree_doc[] = 
   "Free a configuration string found with hdfsConfGetStr";
 static PyObject *
-confStrFree(PyObject * args) {
+confStrFree(PyObject *self, PyObject *args) {
   char * key;
   if( !PyArg_ParseTuple(args, "s", &key) ) {
     return NULL;
@@ -319,7 +321,7 @@ confStrFree(PyObject * args) {
 
 static const char openFile_doc[] = "Open a hdfs file in given mode";
 static PyObject *
-openFile(PyObject * args) {
+openFile(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   const char * path;
@@ -345,7 +347,7 @@ openFile(PyObject * args) {
 
 static const char closeFile_doc[] = "Close an open file";
 static PyObject *
-closeFile(PyObject * args) {
+closeFile(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   int erc;
@@ -361,7 +363,7 @@ closeFile(PyObject * args) {
 static const char exists_doc[] = 
   "Checks if a given path exsits on the filesystem";
 static PyObject *
-exists(PyObject * args) {
+exists(PyObject *self, PyObject *args) {
   hdfsFS fs;
   const char *name;
   int erc;
@@ -376,7 +378,7 @@ exists(PyObject * args) {
 
 static const char seek_doc[] = "Seek to given offset in file";
 static PyObject *
-hdfs_seek(PyObject * args) {
+hdfs_seek(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   tOffset pos;
@@ -394,7 +396,7 @@ hdfs_seek(PyObject * args) {
 
 static const char tell_doc[] = "Get the current offset in the file, in bytes";
 static PyObject *
-hdfs_tell(PyObject * args) {
+hdfs_tell(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   tOffset pos;
@@ -410,7 +412,7 @@ hdfs_tell(PyObject * args) {
 
 static const char read_doc[] = "Read data from an open file";
 static PyObject *
-hdfs_read(PyObject * args) {
+hdfs_read(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   PyObject *buffer;
@@ -433,7 +435,7 @@ hdfs_read(PyObject * args) {
 
 static const char write_doc[] = "Write data into an open file";
 static PyObject *
-hdfs_write(PyObject * args) {
+hdfs_write(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   PyObject *buffer;
@@ -451,7 +453,7 @@ hdfs_write(PyObject * args) {
 
 static const char flush_doc[] = "Flush the data";
 static PyObject *
-flush(PyObject * args) {
+flush(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   int erc;
@@ -467,7 +469,7 @@ flush(PyObject * args) {
 static const char hFlush_doc[] = 
   "Flush out the data in client's user buffer";
 static PyObject *
-hFlush(PyObject * args) {
+hFlush(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   int erc;
@@ -483,7 +485,7 @@ hFlush(PyObject * args) {
 static const char sync_doc[] = 
   "Flush out and sync the data in client's user buffer";
 static PyObject *
-hdfs_sync(PyObject * args) {
+hdfs_sync(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   int erc;
@@ -499,7 +501,7 @@ hdfs_sync(PyObject * args) {
 static const char available_doc[] = 
   "Number of bytes that can be read from this input stream without blocking";
 static PyObject *
-available(PyObject * args) {
+available(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
   int len;
@@ -514,7 +516,7 @@ available(PyObject * args) {
 
 static const char copy_doc[] = "Copy file from one filesystem to another";
 static PyObject *
-copy(PyObject * args) {
+copy(PyObject *self, PyObject *args) {
   hdfsFS srcFS, dstFS;
   const char *src, *dst;
   int erc;
@@ -531,7 +533,7 @@ copy(PyObject * args) {
 
 static const char move_doc[] = "Move file from one filesystem to another";
 static PyObject *
-move(PyObject * args) {
+move(PyObject *self, PyObject *args) {
   hdfsFS srcFS, dstFS;
   const char *src, *dst;
   int erc;
@@ -548,7 +550,7 @@ move(PyObject * args) {
 
 static const char delete_doc[] = "Delete file";
 static PyObject *
-delete(PyObject * args) {
+hdfs_delete(PyObject *self, PyObject *args) {
   hdfsFS fs;
   const char *name;
   bool recursive;
@@ -564,7 +566,7 @@ delete(PyObject * args) {
 
 static const char rename_doc[] = "Rename file";
 static PyObject *
-hdfs_rename(PyObject * args) {
+hdfs_rename(PyObject *self, PyObject *args) {
   hdfsFS fs;
   const char *src, *tgt;
   int erc;
@@ -580,7 +582,7 @@ hdfs_rename(PyObject * args) {
 static const char getWorkingDirectory_doc[] = 
   "Get the current working directory for the given filesystem";
 static PyObject *
-getWorkingDirectory(PyObject * args) {
+getWorkingDirectory(PyObject *self, PyObject *args) {
   hdfsFS fs;
   PyObject *buffer;
   char *name;
@@ -602,7 +604,7 @@ getWorkingDirectory(PyObject * args) {
 
 static const char setWorkingDirectory_doc[] = "Set the working directory";
 static PyObject *
-setWorkingDirectory(PyObject * args) {
+setWorkingDirectory(PyObject *self, PyObject *args) {
   hdfsFS fs;
   char *name;
   int erc;
@@ -618,7 +620,7 @@ setWorkingDirectory(PyObject * args) {
 static const char createDirectory_doc[] = 
   "Make the given file and all non-existent parents into directories";
 static PyObject *
-createDirectory(PyObject * args) {
+createDirectory(PyObject *self, PyObject *args) {
   hdfsFS fs;
   char *name;
   int erc;
@@ -634,7 +636,7 @@ createDirectory(PyObject * args) {
 static const char setReplication_doc[] = 
   "Set the replication of the specified file to the supplied value";
 static PyObject *
-setReplication(PyObject * args) {
+setReplication(PyObject *self, PyObject *args) {
   hdfsFS fs;
   char *name;
   int16_t replication;
@@ -713,7 +715,7 @@ hdfsFileInfo_New(const hdfsFileInfo *info) {
 static const char listDirectory_doc[] = 
   "Get list of files/directories for a given";
 static PyObject *
-listDirectory(PyObject * args) {
+listDirectory(PyObject *self, PyObject *args) {
   hdfsFS fs;
   char *name;
   hdfsFileInfo *pinfo;
@@ -749,7 +751,7 @@ listDirectory(PyObject * args) {
 static const char getPathInfo_doc[] = 
   "Get information about a path as an hdfsFileInfo struct";
 static PyObject *
-getPathInfo(PyObject * args) {
+getPathInfo(PyObject *self, PyObject *args) {
   hdfsFS fs;
   char *name;
   hdfsFileInfo * info;
@@ -775,22 +777,28 @@ getPathInfo(PyObject * args) {
   return output;
 }
 
+#if defined(__cplusplus)
+# define STRUCT
+#else
+# define STRUCT struct
+#endif
+
 static int 
 extract_fileinfo( PyObject * fileinfo_capsule, void *pout ) {
-  struct hdfsFileInfo **pfileinfo = (struct hdfsFileInfo **)pout;
+  STRUCT hdfsFileInfo **pfileinfo = (STRUCT hdfsFileInfo **)pout;
   if( (pout = PyCapsule_GetPointer(fileinfo_capsule, 
 				   fileinfo_capsule_name)) == NULL ) {
     hdfs_err();
     return 0;
   }
-  *pfileinfo = *(struct hdfsFileInfo **)pout;
+  *pfileinfo = *(STRUCT hdfsFileInfo **)pout;
   return 1;
 }
 
 static const char freeFileInfo_doc[] = 
   "Free up the hdfsFileInfo array (including fields)";
 static PyObject *
-freeFileInfo(PyObject * args) {
+freeFileInfo(PyObject *self, PyObject *args) {
   hdfsFileInfo *pfi;
   int nelem;
   if( !PyArg_ParseTuple(args, "O&si", extract_fileinfo, &pfi, &nelem) ) {
@@ -803,7 +811,7 @@ freeFileInfo(PyObject * args) {
 static const char getHosts_doc[] = 
   "Get hostnames where a particular block of a file is stored";
 static PyObject *
-getHosts(PyObject * args) {
+getHosts(PyObject *self, PyObject *args) {
   hdfsFS fs;
   char *name;
   tOffset i, nelem, start, len;  
@@ -855,7 +863,7 @@ getHosts(PyObject * args) {
 static const char freeHosts_doc[] = 
   "Free up the structure returned by hdfsGetHosts";
 static PyObject *
-freeHosts(PyObject * args) {
+freeHosts(PyObject *self, PyObject *args) {
   PyObject *pyhosts;
   int i, j, nhosts;
   char ***hosts = NULL;
@@ -864,14 +872,14 @@ freeHosts(PyObject * args) {
   }
 
   nhosts = PyTuple_Size(pyhosts);
-  if( (hosts = calloc( 1 + nhosts, sizeof(char**))) == NULL ) {
+  if( (hosts = (char***) calloc( 1 + nhosts, sizeof(char**))) == NULL ) {
     return PyErr_NoMemory();
   }
   for( i=0; i < nhosts; i++ ) {
     PyObject *row = PyTuple_GetItem(pyhosts, i);
     int nelem = PyTuple_Size(row);
     if( row == NULL ) return NULL;
-    if( (hosts[i] = calloc(1 + nelem, sizeof(char*))) == NULL ) {
+    if( (hosts[i] = (char**)calloc(1 + nelem, sizeof(char*))) == NULL ) {
       return PyErr_NoMemory();
     }
     for( j=0; j < nelem; j++ ) {
@@ -898,7 +906,7 @@ freeHosts(PyObject * args) {
 static const char getDefaultBlockSize_doc[] = 
   "Get the default blocksize";
 static PyObject *
-getDefaultBlockSize(PyObject * args) {
+getDefaultBlockSize(PyObject *self, PyObject *args) {
   hdfsFS fs;
   tOffset len;
   if( !PyArg_ParseTuple(args, "O&", extract_fs, &fs) ) {
@@ -914,7 +922,7 @@ getDefaultBlockSize(PyObject * args) {
 static const char getCapacity_doc[] = 
   "Return the raw capacity of the filesystem";
 static PyObject *
-getCapacity(PyObject * args) {
+getCapacity(PyObject *self, PyObject *args) {
   hdfsFS fs;
   tOffset len;
   if( !PyArg_ParseTuple(args, "O&", extract_fs, &fs) ) {
@@ -929,7 +937,7 @@ getCapacity(PyObject * args) {
 static const char getUsed_doc[] = 
   "Return the total raw size of all files in the filesystem";
 static PyObject *
-getUsed(PyObject * args) {
+getUsed(PyObject *self, PyObject *args) {
   hdfsFS fs;
   tOffset len;
   if( !PyArg_ParseTuple(args, "O&", extract_fs, &fs) ) {
@@ -944,7 +952,7 @@ getUsed(PyObject * args) {
 static const char chown_doc[] = 
   "Change the user and/or group of a file or directory";
 static PyObject *
-hdfs_chown(PyObject * args) {
+hdfs_chown(PyObject *self, PyObject *args) {
   hdfsFS fs;
   const char *path,  *owner,  *group;
   int erc;
@@ -960,7 +968,7 @@ hdfs_chown(PyObject * args) {
 
 static const char chmod_doc[] = "Chmod";
 static PyObject *
-hdfs_chmod(PyObject * args) {
+hdfs_chmod(PyObject *self, PyObject *args) {
   hdfsFS fs;
   const char *path;
   short mode;
@@ -976,7 +984,7 @@ hdfs_chmod(PyObject * args) {
 
 static const char utime_doc[] = "Utime";
 static PyObject *
-utime(PyObject * args) {
+utime(PyObject *self, PyObject *args) {
   hdfsFS fs;
   const char *path;
   tTime mtime, atime;
@@ -993,7 +1001,7 @@ utime(PyObject * args) {
 static const char truncate_doc[] = 
   "Truncate the file in the indicated path to the indicated size";
 static PyObject *
-hdfs_truncate(PyObject * args) {
+hdfs_truncate(PyObject *self, PyObject *args) {
   hdfsFS fs;
   const char *path;
   tOffset pos;
@@ -1013,7 +1021,7 @@ hdfs_truncate(PyObject * args) {
 static const char getDelegationToken_doc[] = 
   "Get a delegation token from namenode";
 static PyObject *
-getDelegationToken(PyObject * args) {
+getDelegationToken(PyObject *self, PyObject *args) {
   hdfsFS fs;
   const char *name;
   char * token;
@@ -1029,7 +1037,7 @@ getDelegationToken(PyObject * args) {
 static const char freeDelegationToken_doc[] = 
   "Free a delegation token";
 static PyObject *
-freeDelegationToken(PyObject * args) {
+freeDelegationToken(PyObject *self, PyObject *args) {
   hdfsFS fs;
   char * token;
   if( !PyArg_ParseTuple(args, "s", &token) ) {
@@ -1041,7 +1049,7 @@ freeDelegationToken(PyObject * args) {
 
 static const char renewDelegationToken_doc[] = "Renew a delegation token";
 static PyObject *
-renewDelegationToken(PyObject * args) {
+renewDelegationToken(PyObject *self, PyObject *args) {
   hdfsFS fs;
   char * token;
   long erc;
@@ -1057,7 +1065,7 @@ renewDelegationToken(PyObject * args) {
 static const char cancelDelegationToken_doc[] = 
   "Cancel a delegation token";
 static PyObject *
-cancelDelegationToken(PyObject * args) {
+cancelDelegationToken(PyObject *self, PyObject *args) {
   hdfsFS fs;
   char * token;
   long erc;
@@ -1116,7 +1124,7 @@ static const char getHANamenodes_doc[] =
   "return all namenode information as an array, else NULL"
   " (config is optional 3rd parameter)";
 static PyObject *
-getHANamenodes(PyObject * args) {
+getHANamenodes(PyObject *self, PyObject *args) {
   const char * nameservice, *config = NULL;
   int i, len;
   Namenode *nodes;
@@ -1160,7 +1168,7 @@ getHANamenodes(PyObject * args) {
 static const char freeNamenodeInformation_doc[] = 
   "Free the array returned by hdfsGetConfiguredNamenodes";
 static PyObject *
-freeNamenodeInformation(PyObject * args) {
+freeNamenodeInformation(PyObject *self, PyObject *args) {
   PyObject *pynodes;
   Namenode * nodes = NULL;
   int i, len = 0;
@@ -1170,7 +1178,7 @@ freeNamenodeInformation(PyObject * args) {
 
   len = PyTuple_Size(pynodes);
 
-  if( (nodes = calloc(len, sizeof(Namenode))) == NULL ) {
+  if( (nodes = (Namenode*)calloc(len, sizeof(Namenode))) == NULL ) {
     return PyErr_NoMemory();
   }
   
@@ -1265,7 +1273,7 @@ BlockLocation_GetRow( PyObject *row ) {
   int i, nelem = PyTuple_Size(row);
 
   
-  if( (output = calloc(nelem, sizeof(char*))) == NULL ) {
+  if( (output = (char**) calloc(nelem, sizeof(char*))) == NULL ) {
     return NULL;
   }
   for( i=0; i < nelem; i++ ) {
@@ -1297,7 +1305,7 @@ static const char getFileBlockLocations_doc[] =
   "Get an array containing hostnames, offset and size "
   "of portions of the given file";
 static PyObject *
-getFileBlockLocations(PyObject * args) {
+getFileBlockLocations(PyObject *self, PyObject *args) {
   hdfsFS fs;
   const char *name;
   tOffset start;
@@ -1335,7 +1343,7 @@ getFileBlockLocations(PyObject * args) {
 static const char freeFileBlockLocations_doc[] = 
   "Free the BlockLocation array returned by hdfsGetFileBlockLocations";
 static PyObject *
-freeFileBlockLocations(PyObject * args) {
+freeFileBlockLocations(PyObject *self, PyObject *args) {
   BlockLocation *blocks;
   int i, nblocks;
   PyObject *pynodes;
@@ -1344,7 +1352,7 @@ freeFileBlockLocations(PyObject * args) {
   }
   nblocks = PyTuple_Size(pynodes);
 
-  if( (blocks = calloc(nblocks, sizeof(BlockLocation))) == NULL ) {
+  if( (blocks = (BlockLocation*) calloc(nblocks, sizeof(BlockLocation))) == NULL ) {
     return PyErr_NoMemory();
   }
   
@@ -1395,7 +1403,7 @@ static PyMethodDef methods[] = {
   { "available", (PyCFunction)available, METH_VARARGS, PyDoc_STR(available_doc) }, 
   { "copy", (PyCFunction)copy, METH_VARARGS, PyDoc_STR(copy_doc) }, 
   { "move", (PyCFunction)move, METH_VARARGS, PyDoc_STR(move_doc) }, 
-  { "delete", (PyCFunction)delete, METH_VARARGS, PyDoc_STR(delete_doc) }, 
+  { "delete", (PyCFunction)hdfs_delete, METH_VARARGS, PyDoc_STR(delete_doc) }, 
   { "rename", (PyCFunction)hdfs_rename, METH_VARARGS, PyDoc_STR(rename_doc) }, 
   { "getWorkingDirectory", (PyCFunction)getWorkingDirectory, METH_VARARGS, PyDoc_STR(getWorkingDirectory_doc) }, 
   { "setWorkingDirectory", (PyCFunction)setWorkingDirectory, METH_VARARGS, PyDoc_STR(setWorkingDirectory_doc) }, 
