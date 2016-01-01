@@ -17,6 +17,7 @@ namespace mnemo {
     std::vector<V> handles;
     std::set<I> unused;
     size_t nelem = 0;
+    const I nil;
   protected:
     typedef typename std::vector<V>::iterator iterator_v;
     typedef typename std::vector<V>::const_iterator iterator_cv;
@@ -28,13 +29,23 @@ namespace mnemo {
 	  } );
     }
   public:
-    const V INVALID;
-    handles_t() : handles(16),  INVALID(reinterpret_cast<V>(-1)) {}
+    const V INVALID, NIL;
+
+    handles_t(V NIL = 0) 
+      : handles(16)
+      , NIL(NIL)
+      , INVALID(reinterpret_cast<V>(-1)) 
+      , nil(static_cast<I>(-2)) 
+    {}
 
     /*
      * Keep a value, return an index. 
      */
     I put( V v ) {
+      assert(nelem <= handles.size());
+      // All nils are one. 
+      if( v == NIL )
+	return nil;
       // Don't store the same value twice. 
       iterator_cv pv;
       if( (pv = find_value(v)) != handles.end() ) {
@@ -65,6 +76,7 @@ namespace mnemo {
      */
     V get( I pos ) const {
       assert(nelem < handles.size());
+      if( pos == nil ) return NIL;
       if( pos >= nelem ) {
 	return INVALID;
       }
@@ -76,7 +88,8 @@ namespace mnemo {
      * Verify a value. 
      */
     bool vet( V v ) const {
-      return find_value(v) != handles.end();
+      assert(nelem < handles.size());
+      return v == NIL || find_value(v) != handles.end();
     }
 
     /*
@@ -84,6 +97,7 @@ namespace mnemo {
      */
     V del( I pos ) {
       assert(nelem < handles.size());
+      if( pos == nil ) return NIL;
       if( pos >= nelem ) {
 	return INVALID;
       }
@@ -99,6 +113,8 @@ namespace mnemo {
      * Forget a value. 
      */
     bool del( V v ) {
+      assert(nelem < handles.size());
+      if( v == NIL) return true;
       iterator_v pv = find_value(v);
       if( pv == handles.end() )  {
 	return false;
