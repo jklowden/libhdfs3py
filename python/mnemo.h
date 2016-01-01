@@ -11,27 +11,33 @@
 
 namespace mnemo {
   
-  template <typename V, typename I>
+  template <typename V, typename I = size_t>
   class handles_t { 
   private: 
     std::vector<V> handles;
-    std::set<size_t> unused;
+    std::set<I> unused;
     size_t nelem = 0;
+  protected:
+    typedef typename std::vector<V>::iterator iterator_v;
+    typedef typename std::vector<V>::const_iterator iterator_cv;
+    iterator_cv find_value(V value) const {
+      I i(0);
+      return 
+	std::find_if( handles.begin(), handles.end(), [this, value, &i](V v) {
+	    return v == value && unused.find(i++) != unused.end();
+	  } );
+    }
   public:
     const V INVALID;
-
     handles_t() : handles(16),  INVALID(reinterpret_cast<V>(-1)) {}
+
     /*
      * Keep a value, return an index. 
      */
     I put( V v ) {
       // Don't store the same value twice. 
-      typename std::vector<V>::iterator pv;
-      I i(0);
-      pv = std::find_if( handles.begin(), handles.end(), [this, v, &i](V) {
-	  return unused.find(i++) != unused.end();
-	} );
-      if( pv != handles.end() ) {
+      iterator_cv pv;
+      if( (pv = find_value(v)) != handles.end() ) {
 	// We found a value in handles whose index is not in unused. 
 	return static_cast<I>(-1);
       }
@@ -67,6 +73,13 @@ namespace mnemo {
     }
 
     /*
+     * Verify a value. 
+     */
+    bool vet( V v ) const {
+      return find_value(v) != handles.end();
+    }
+
+    /*
      * Accept an index, return a value and forget it. 
      */
     V del( I pos ) {
@@ -82,6 +95,18 @@ namespace mnemo {
       return v;
     }
 
+    /*
+     * Forget a value. 
+     */
+    bool del( V v ) {
+      iterator_v pv = find_value(v);
+      if( pv == handles.end() )  {
+	return false;
+      }
+      const size_t pos = pv - handles.begin();
+      unused.insert(pos);
+      return true;
+    }
   };
 }  //namespace
 
