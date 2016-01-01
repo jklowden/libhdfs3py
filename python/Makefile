@@ -8,7 +8,7 @@ CXXFLAGS = -Wno-write-strings
 CXX = c++ -x c++ -std=c++11 $(CPPFLAGS) $(CXXFLAGS) 
 
 OUTPUT = hdfs3py.so
-all: $(OUTPUT) t/hdfsBuilderSetNameNode
+all: $(OUTPUT) t/hdfsBuilderSetNameNode mnemo.o
 
 dist:
 	cd t && python setup.py build
@@ -20,6 +20,8 @@ t/hdfsBuilderSetNameNode: t/hdfsBuilderSetNameNode.c
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 ttest: t/hdfsBuilderSetNameNode
+
+mnemo.o: mnemo.h
 
 .c.so:
 	$(CC) -o $@ $^ -fPIC -shared $(LDFLAGS)
