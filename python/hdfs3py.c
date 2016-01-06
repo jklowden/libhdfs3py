@@ -12,11 +12,16 @@ static const char fileinfo_capsule_name[] = "hdfs3py.hdfsFileInfo";
 static const char fs_capsule_name[] = "hdfs3py.hdfsFS";
 
 static PyObject *
-hdfs_err() {
+hdfs_err_msg( const char *msg ) {
   PyObject *type = PyErr_NewException("hdfs3py.error", NULL, NULL);
-  const char *msg = hdfsGetLastError();
   PyErr_SetString(type, msg);
   return NULL;
+}  
+
+static PyObject *
+hdfs_err() {
+  const char *msg = hdfsGetLastError();
+  return hdfs_err_msg(msg);
 }  
 
 static const char getLastError_doc[] =
@@ -170,7 +175,6 @@ newBuilder(void) {
   if( (bld = hdfsNewBuilder()) == NULL ) {
     return hdfs_err();
   }
-  printf("bld constructed at %p\n", bld);
   if( (bld_capsule = PyCapsule_New(bld, bld_capsule_name, NULL)) == NULL ) {
     return NULL;
   }
@@ -192,7 +196,6 @@ builderSetNameNode(PyObject *self, PyObject *args) {
   if( !PyArg_ParseTuple(args, "O&s", extract_bld, &bld, &nn) ) {
     return NULL;
   }
-  printf("bld extracted as %p\n", bld);
   hdfsBuilderSetNameNode(bld, nn);
   Py_RETURN_TRUE;
 }
@@ -329,7 +332,7 @@ openFile(PyObject *self, PyObject *args) {
   int bufferSize;
   short replication;
   tOffset blocksize;
-  PyObject * fs_capsule;
+  PyObject * capsule;
 
   if( !PyArg_ParseTuple(args, "O&siihl", extract_fs, &fs, &path, 
 			&flags, &bufferSize, &replication, &blocksize) ) {
@@ -339,10 +342,10 @@ openFile(PyObject *self, PyObject *args) {
 			   replication, blocksize)) == NULL ) {
     return hdfs_err();
   }
-  if( (fs_capsule = PyCapsule_New(fs, fs_capsule_name, NULL)) == NULL ) {
+  if( (capsule = PyCapsule_New(file, file_capsule_name, NULL)) == NULL ) {
     return NULL;
   }
-  return fs_capsule;  
+  return capsule;  
 }
 
 static const char closeFile_doc[] = "Close an open file";
@@ -353,6 +356,9 @@ closeFile(PyObject *self, PyObject *args) {
   int erc;
   if( !PyArg_ParseTuple(args, "O&O&", extract_fs, &fs, extract_file, &file) ) {
     return NULL;
+  }
+  if( !fs ) {
+    return hdfs_err_msg("fs is null");
   }
   if( (erc = hdfsCloseFile(fs, file)) != 0 ) {
     return hdfs_err();
@@ -438,14 +444,31 @@ static PyObject *
 hdfs_write(PyObject *self, PyObject *args) {
   hdfsFS fs;
   hdfsFile file;
-  PyObject *buffer;
+  PyObject *input;
   tSize len;
-  if( !PyArg_ParseTuple(args, "O&O&Ol", extract_fs, &fs, extract_fs, &file, 
-			&buffer, &len) ) {
+  if( !PyArg_ParseTuple(args, "O&O&Ol", extract_fs, &fs, extract_file, &file, 
+			&input, &len) ) {
     return NULL;
   }
 
- if( (len = hdfsWrite(fs, file, PyBytes_AsString(buffer), len)) == -1 ) {
+  if( !fs ) {  // Who knows why?  PyArg_ParseTuple is setting fs to NULL. 
+    PyObject *o;
+    if( (o = PyTuple_GetItem(args, 0)) == NULL ) {
+      return NULL;
+    }
+    if( 0 == extract_fs(o, &fs) ) {
+      static const char msg[] = "fs is NULL";
+      return hdfs_err_msg(msg);
+    }
+  }
+
+  char *buffer = PyBytes_AsString(input);
+  if( !buffer ) {
+    return NULL;
+  }
+
+  if( (len = hdfsWrite(fs, file, buffer, len)) == -1 ) {
+    fprintf(stderr, "write failed, padre\n");
     return hdfs_err();
   }
   return PyLong_FromLong(len);

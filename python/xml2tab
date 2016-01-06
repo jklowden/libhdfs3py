@@ -1,0 +1,140 @@
+#! /usr/bin/env python
+from __future__ import print_function
+
+import sys, os, getopt, re
+
+from xml.sax import make_parser
+from xml.sax.handler import ContentHandler
+
+class Tablulate(ContentHandler):
+    def __init__(self, out):
+        self.out = out
+        self.locator = None
+        self.reset()
+
+    def reset(self):
+        self.data = ''
+        self.row = {}
+        
+    def setDocumentLocator(self, locator):
+        self.locator = locator
+
+    def startDocument(self):
+        print('.\\"startDocument')
+
+    def endDocument(self):
+        print('.\\"endDocument')
+
+    def startPrefixMapping(self, prefix, uri):
+        print('.\\"startPrefixMapping')
+
+    def endPrefixMapping(self, prefix):
+        print('.\\"endPrefixMapping')
+
+    def startElement(self, name, attrs):
+        if name == 'configuration':
+            print('.TS H')
+            print('box;')
+            # 3 columns with widths of 2.6", 2", and the rest of the page. 
+            print('Lbw(2.61i) Lbw(2i) Lbx')
+            print('L L L .')
+            print('Name\tValue\tDescription')
+            print('.TH')
+            self.reset()
+
+    def endElement(self, name):
+        self.row[name] = self.data
+        self.data = ''
+        descr = ''
+        if 'description' in self.row:
+            descr = self.row['description']
+        if name == 'property':
+            print('T{\n%s\nT}\tT{\n%s\nT}\tT{\n%s\nT}' % (self.row['name'], 
+                                                          self.row['value'], 
+                                                          descr))
+            self.reset()
+            return
+
+        if name == 'configuration':
+            print('.tm \\n[.l]')
+            print('.tm \\n[TW]')
+            print('.TE')
+
+    def startElementNS(self, name, qname, attrs):
+        print('.\\"startElementNS')
+
+    def endElementNS(self, name, qname):
+        print('.\\"endElementNS')
+
+    # "SAX parsers may return all contiguous character data in a single
+    #  chunk, or they may split it into several chunks"
+    def characters(self, data):
+        # ignore data that is 100% whitespace
+        if not self.data:
+            data = str(re.sub('^\s+', '', data))
+        else:
+            data = str(re.sub('^\s+', ' ', data))
+        data = str(re.sub('\s+$', '', data))
+        if len(data) > 0:
+            self.data += data
+
+    def ignorableWhitespace(self, whitespace):
+        print('.\\"ignorableWhitespace')
+
+    def processingInstruction(self, target, data):
+        print('.\\"processingInstruction')
+
+    def skippedEntity(self, name):
+        print('.\\"skippedEntity')
+
+def process( out, filename ):
+    parser = make_parser()
+    parser.setContentHandler(Tablulate(out))
+    parser.parse(open(filename))
+
+__doc__ = """
+syntax: xml2tab [-h] [-o output] [xmlfile ...]
+Read hadoop configuration file from _xmlfile_ or standard input. 
+Produce troff table in _output_ or standard output. 
+Usual pipeline is: xml2tab filename | nroff -t | less
+"""
+
+def main( argv=None ):
+    out = None
+    if argv is None:
+        argv = sys.argv
+    # parse command line options
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], "o:h", ["help"])
+    except getopt.error as msg:
+        print(msg)
+        print("for help use --help")
+        sys.exit(2)
+    # process options
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            print(__doc__)
+            sys.exit(0)
+        elif opt == '-o':
+            out = arg
+
+    # process arguments
+    for ifile, arg in enumerate(args):
+        process(out, arg)
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+
+##############################
+
+"""
+an XML structure might look like this:
+
+<configuration>
+
+        <property>
+                <name>dfs.default.uri</name>
+                <value>hdfs://localhost:9000</value>
+        </property>
+"""

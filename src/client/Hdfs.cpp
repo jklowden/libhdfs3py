@@ -641,7 +641,7 @@ hdfsFile hdfsOpenFile(hdfsFS fs, const char * path, int flags, int bufferSize,
                       short replication, tOffset blocksize) {
     PARAMETER_ASSERT(fs && path && strlen(path) > 0, NULL, EINVAL);
     PARAMETER_ASSERT(bufferSize >= 0 && replication >= 0 && blocksize >= 0, NULL, EINVAL);
-    PARAMETER_ASSERT(!(flags & O_RDWR) && !((flags & O_EXCL) && (flags & O_CREAT)), NULL, ENOTSUP);
+    ///PARAMETER_ASSERT(!(flags & O_RDWR) && !((flags & O_EXCL) && (flags & O_CREAT)), NULL, ENOTSUP);
     HdfsFileInternalWrapper * file = NULL;
     OutputStream * os = NULL;
     InputStream * is = NULL;

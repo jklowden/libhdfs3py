@@ -1,8 +1,11 @@
 .SUFFIXES: .c .so
-INCLUDE = -I/usr/local/anaconda/include/python3.4m
+ANACONDA=/usr/local/anaconda
+INCLUDE = -I$(ANACONDA)/include/python3.4m
 CPPFLAGS = -g $(INCLUDE)
 RPATH = $(dir $(PWD))build/src
-LDFLAGS = -lhdfs3 -L$(RPATH) -Wl,-rpath -Wl,$(RPATH)
+PYRPATH = $(ANACONDA)/lib
+LDFLAGS = -lhdfs3 -lpython3.4m \
+	-L$(RPATH) -L$(PYRPATH) -Wl,-rpath -Wl,$(RPATH):$(PYRPATH)
 CC = c99 $(CPPFLAGS) $(CFLAGS) 
 CXXFLAGS = -Wno-write-strings
 CXX = c++ -x c++ -std=c++11 $(CPPFLAGS) $(CXXFLAGS) 
@@ -24,4 +27,4 @@ ttest: t/hdfsBuilderSetNameNode
 mnemo.o: mnemo.h
 
 .c.so:
-	$(CC) -o $@ $^ -fPIC -shared $(LDFLAGS)
+	$(CC) -O0 -o $@ $^ -fPIC -shared $(LDFLAGS)
